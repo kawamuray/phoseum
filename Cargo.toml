@@ -1,0 +1,30 @@
+[package]
+name = "phoseum"
+version = "0.1.0"
+authors = ["Yuto Kawamura <kawamuray.dadada@gmail.com>"]
+edition = "2018"
+
+[profile.release]
+debug = true
+
+[dependencies]
+reqwest = "0.9"
+oauth2 = "3.0.0-alpha.6"
+serde = "1.0"
+serde_json = "1.0"
+dirs = "2.0"
+log = "0.4"
+env_logger = "0.7"
+url = "2.1"
+chrono = "0.4"
+rand = "0.7"
+libc = "0.2"
+elementtree = "0.5"
+signal-hook = "0.1"
+clap = "2.33"
+rouille = "3.0"
+gpio-cdev = "0.2"
+failure = "0.1"
+
+[dev-dependencies]
+tempfile = "3"
