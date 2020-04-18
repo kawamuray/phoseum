@@ -1,0 +1,10 @@
+DISPLAY=:0.0
+GOOGLE_OAUTH_CLIENT_ID=''
+GOOGLE_OAUTH_CLIENT_SECRET=''
+GOOGLE_PHOTOS_ALBUM_ID=''
+CONTROL_HTTP_PORT=8000
+# In systemd's Calender Event syntax: https://www.freedesktop.org/software/systemd/man/systemd.time.html#Calendar%20Events
+REFRESH_CAL="00/1:00"
+UPDATE_CAL="*:0/10" # every 10 minutes
+SLEEP_CAL="00:00"
+WAKEUP_CAL="10:00"
