@@ -1,4 +1,3 @@
-use dirs;
 use failure::Fail;
 use log::debug;
 use serde::Deserialize;
@@ -32,12 +31,6 @@ impl From<io::Error> for Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
-
-pub fn default_store_path() -> PathBuf {
-    dirs::home_dir()
-        .expect("HOME dir is not set")
-        .join(".phoseum-googleapis-secret.json")
-}
 
 pub struct TokenStore {
     path: PathBuf,

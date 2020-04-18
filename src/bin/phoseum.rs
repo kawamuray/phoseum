@@ -7,7 +7,7 @@ use phoseum::control::PlayerCmd;
 use phoseum::googlephotos::{self, GPhotosAlbum};
 use phoseum::gpio_control;
 use phoseum::http_control;
-use phoseum::oauth::{self, TokenService};
+use phoseum::oauth::TokenService;
 use phoseum::player::SlideshowConfig;
 use phoseum::player_vlc::{VlcConfig, VlcPlayer};
 use phoseum::playlist;
@@ -64,10 +64,9 @@ fn create_album(matches: &ArgMatches) -> GPhotosAlbum {
         .value_of("googlephotos.oauth_client_secret")
         .expect("oauth secret");
     let auth_config = googlephotos::api::auth_config(client_id, client_secret);
-    let token_service = TokenService::new(oauth::store::default_store_path(), auth_config)
-        .expect("error loading token servie");
+    let tokens = TokenService::new(auth_config).expect("error loading token servie");
 
-    googlephotos::new_gphotos_album(album_id, token_service)
+    googlephotos::new_gphotos_album(album_id, tokens)
 }
 
 fn create_pl_builder(matches: &ArgMatches) -> Result<playlist::PlaylistBuilder> {

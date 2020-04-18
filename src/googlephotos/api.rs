@@ -1,4 +1,5 @@
 use crate::oauth::{self, TokenService};
+use dirs;
 use failure::{self, format_err, Fail};
 use log::{debug, warn};
 use reqwest;
@@ -67,6 +68,9 @@ pub fn auth_config<I: Into<String>, S: Into<String>>(
         scopes: vec!["https://www.googleapis.com/auth/photoslibrary.readonly".to_string()],
         client_id: client_id.into(),
         client_secret: client_secret.into(),
+        token_store: dirs::home_dir()
+            .expect("HOME dir is not set")
+            .join(".phoseum-googleapis-secret.json"),
     }
 }
 

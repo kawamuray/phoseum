@@ -2,7 +2,7 @@ use env_logger;
 
 use googlephotos::api::{GPhotosApi, RetryConfig};
 use phoseum::googlephotos;
-use phoseum::oauth::{self, TokenService};
+use phoseum::oauth::TokenService;
 use std::env;
 use std::io;
 use std::io::BufRead;
@@ -17,10 +17,9 @@ fn main() {
     }
 
     let auth_config = googlephotos::api::auth_config(args[1].clone(), args[2].clone());
-    let token_service =
-        TokenService::new(oauth::store::default_store_path(), auth_config).expect("oauth loading");
+    let tokens = TokenService::new(auth_config).expect("oauth loading");
 
-    let auth_url = token_service.start_new_authorization();
+    let auth_url = tokens.start_new_authorization();
 
     println!("Open this URL in your browser:\n{}\n", auth_url);
     eprint!("Paste auth code: ");
@@ -31,13 +30,13 @@ fn main() {
         .next()
         .expect("read auth code (absent)")
         .expect("read auth code (error)");
-    token_service
+    tokens
         .complete_authorization(auth_code)
         .expect("finalize authorization");
 
     println!("Auth OK");
 
-    let gapi = GPhotosApi::new(token_service, RetryConfig::default());
+    let gapi = GPhotosApi::new(tokens, RetryConfig::default());
 
     let mut page_token: Option<String> = None;
     println!("Albums (private):");

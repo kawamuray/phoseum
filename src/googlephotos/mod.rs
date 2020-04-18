@@ -17,11 +17,8 @@ const MEDIA_ITEMS_SEARCH_PAGE_SIZE: i64 = 100;
 const PHOTO_WIDTH: u32 = 1280;
 const PHOTO_HEIGHT: u32 = 800;
 
-pub fn new_gphotos_album<S: Into<String>>(
-    album_id: S,
-    token_service: TokenService,
-) -> GPhotosAlbum {
-    let api = GPhotosApi::new(token_service, RetryConfig::default());
+pub fn new_gphotos_album<S: Into<String>>(album_id: S, tokens: TokenService) -> GPhotosAlbum {
+    let api = GPhotosApi::new(tokens, RetryConfig::default());
     GPhotosAlbum::new(album_id, api)
 }
 

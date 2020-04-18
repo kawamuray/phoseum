@@ -54,10 +54,11 @@ pub struct AuthConfig {
     pub client_id: String,
     pub client_secret: String,
     pub scopes: Vec<String>,
+    pub token_store: PathBuf,
 }
 
 impl TokenService {
-    pub fn new<P: Into<PathBuf>>(store_path: P, config: AuthConfig) -> Result<TokenService> {
+    pub fn new(config: AuthConfig) -> Result<TokenService> {
         let auth_url = AuthUrl::new(config.auth_url).map_err(|e| Error::InvalidArgument {
             name: "auth_url",
             reason: e.to_string(),
@@ -76,7 +77,7 @@ impl TokenService {
                         .expect("set redirect url"),
                 );
 
-        let store = TokenStore::open(store_path)?;
+        let store = TokenStore::open(config.token_store)?;
 
         Ok(TokenService {
             store,
