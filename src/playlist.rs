@@ -67,8 +67,8 @@ impl PlaylistBuilder {
     pub fn build<T: Album>(&self, album: &T) -> Result<Vec<T::Item>, T::E> {
         self.do_build(
             Selectors::new(vec![
-                Box::new(selector::FreshItemSelector::new(Duration::from_secs(1234))),
-                Box::new(selector::OldItemSelector::new(1234)),
+                Box::new(selector::FreshItemSelector::new(self.fresh_retention)),
+                Box::new(selector::OldItemSelector::new(self.max_size)),
             ]),
             album,
         )
