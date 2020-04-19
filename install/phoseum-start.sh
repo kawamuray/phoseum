@@ -20,7 +20,12 @@ exec $PHOSEUM_BIN \
      --googlephotos.oauth-client-id="$GOOGLE_OAUTH_CLIENT_ID" \
      --googlephotos.oauth-client-secret="$GOOGLE_OAUTH_CLIENT_SECRET" \
      --googlephotos.album-id "$GOOGLE_PHOTOS_ALBUM_ID" \
+     --slideshow.show-duration=30 \
+     --playlist.fresh-retention=$((3600 * 24 * 14)) \
+     --playlist.min-size=30 \
+     --playlist.max-size=100 \
      --storage.media-dir="$media_dir" \
+     --storage.capacity=$((10 * 1024 * 1024 * 1024)) \
      --control.http-port="$CONTROL_HTTP_PORT" \
      --control.player=gpio \
      --control.gpio-dev=/dev/gpiochip0 \
