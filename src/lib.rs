@@ -20,9 +20,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 const POLL_TIMEOUT: Duration = Duration::from_millis(300);
+const HEALTHCHECK_INTERVAL: Duration = Duration::from_secs(60);
 
 pub struct Phoseum<P: Player + Send + 'static, A: Album> {
     slideshow: Slideshow<P, A>,
@@ -110,7 +111,18 @@ impl<P: Player + Send + 'static, A: Album> Phoseum<P, A> {
             }
         }
 
+        let mut last_healthcheck = SystemTime::now();
         while !terminate.load(Ordering::Relaxed) {
+            let now = SystemTime::now();
+            if now.duration_since(last_healthcheck).unwrap() >= HEALTHCHECK_INTERVAL {
+                if !self.slideshow.is_player_ok() {
+                    error!("Player seems to be not working well, aborting");
+                    terminate.store(true, Ordering::Relaxed);
+                    break;
+                }
+                last_healthcheck = now;
+            }
+
             match pl_recv.recv_timeout(POLL_TIMEOUT) {
                 Ok(cmd) => {
                     if let Err(e) = control::handle_playlist_cmd(&mut self.slideshow, cmd) {

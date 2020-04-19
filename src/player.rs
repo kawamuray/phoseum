@@ -48,4 +48,6 @@ pub trait Player {
     fn update_playlist(&mut self, playlist: Vec<PathBuf>) -> Result<()>;
     /// Return whether the player is pausing
     fn pausing(&self) -> bool;
+    /// Healthcheck. If player is considered as not functioning at the moment, return false.
+    fn is_ok(&self) -> bool;
 }

@@ -19,6 +19,7 @@ const VLC_STARTUP_CHECK_BACKOFF: Duration = Duration::from_millis(500);
 
 const VLC_DEFAULT_BIN: &str = "vlc";
 const VLC_DEFAULT_HTTP_PORT: u32 = 9843;
+const VLC_REQUEST_TIMEOUT: u64 = 30;
 
 #[derive(Debug, Fail)]
 pub enum VlcError {
@@ -73,7 +74,10 @@ impl VlcPlayer {
             vlc_config: config,
             config: None,
             process: None,
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(Some(Duration::from_secs(VLC_REQUEST_TIMEOUT)))
+                .build()
+                .expect("reqwest client"),
             pausing: false,
             muting: false,
         }
@@ -143,9 +147,8 @@ impl VlcPlayer {
         let start_time = Instant::now();
 
         while Instant::now() - start_time < VLC_STARTUP_TIMEOUT {
-            match self.send_status_cmd("", &[]) {
-                Ok(_) => return Ok(()),
-                Err(e) => debug!("Still waiting VLC to boot: {}", e),
+            if self.is_ok() {
+                return Ok(());
             }
             std::thread::sleep(VLC_STARTUP_CHECK_BACKOFF);
         }
@@ -309,6 +312,16 @@ impl Player for VlcPlayer {
     fn pausing(&self) -> bool {
         self.pausing
     }
+
+    fn is_ok(&self) -> bool {
+        match self.send_status_cmd("", &[]) {
+            Ok(_) => true,
+            Err(e) => {
+                debug!("Got error response while checking health of VLC: {}", e);
+                false
+            }
+        }
+    }
 }
 
 impl Drop for VlcPlayer {
@@ -323,5 +336,72 @@ impl Drop for VlcPlayer {
                 Err(e) => warn!("Failed to stop VLC process gracefully: {}", e),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::borrow::Cow;
+    use std::fs;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::os::unix::fs::PermissionsExt;
+    use std::thread;
+    use std::time::Duration;
+    use tempfile;
+
+    fn http_server<S: Into<Cow<'static, str>>>(responses: Vec<S>) {
+        let listener = TcpListener::bind(format!("localhost:{}", VLC_DEFAULT_HTTP_PORT)).unwrap();
+        let responses: Vec<_> = responses.into_iter().map(Into::into).collect();
+        thread::spawn(move || {
+            for resp in responses {
+                let mut conn_in = listener.incoming().next().unwrap().unwrap();
+                conn_in
+                    .set_read_timeout(Some(Duration::from_secs(1)))
+                    .unwrap();
+                let mut buf = [0; 4096];
+                loop {
+                    if let Ok(size) = conn_in.read(&mut buf) {
+                        if size > 0 {
+                            continue;
+                        }
+                    }
+                    break;
+                }
+                write!(&mut conn_in, "HTTP/1.1 200 OK\r\n\r\n{}", resp).unwrap();
+            }
+        });
+    }
+
+    fn dummy_bin<S: Into<Cow<'static, str>>>(responses: Vec<S>) -> tempfile::NamedTempFile {
+        http_server(responses);
+
+        let mut dummy_bin = tempfile::NamedTempFile::new().unwrap();
+        let file = dummy_bin.as_file_mut();
+        writeln!(file, "#!/bin/sh").unwrap();
+        writeln!(file, "sleep 60").unwrap();
+        file.flush().unwrap();
+        let mut perm = file.metadata().expect("metadata").permissions();
+        perm.set_mode(0o775);
+        fs::set_permissions(&dummy_bin, perm).unwrap();
+        dummy_bin
+    }
+
+    #[test]
+    fn test_is_ok() {
+        let dummy_bin = dummy_bin(vec!["", "", ""]); // 2 for start(), 1 for first is_ok()
+
+        let mut player = VlcPlayer::new(VlcConfig {
+            vlc_bin: Some(dummy_bin.path().to_str().unwrap().to_string()),
+            ..VlcConfig::default()
+        });
+        player.start(SlideshowConfig::default()).unwrap();
+
+        // Player health's good while it's running
+        assert!(player.is_ok());
+
+        // Now process exits and health should not be okay
+        assert!(!player.is_ok());
     }
 }

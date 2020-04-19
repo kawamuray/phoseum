@@ -156,4 +156,8 @@ impl<P: Player, A: Album> Slideshow<P, A> {
     pub fn player(&mut self) -> Arc<Mutex<P>> {
         Arc::clone(&self.player)
     }
+
+    pub fn is_player_ok(&self) -> bool {
+        self.player.lock().is_ok()
+    }
 }
