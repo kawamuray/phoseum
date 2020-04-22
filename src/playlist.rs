@@ -493,6 +493,10 @@ mod tests {
         }
     }
 
+    fn clone_mockitems(items: &[(&'static str, SystemTime)]) -> Vec<MockAlbumItem> {
+        items.iter().map(|(n, t)| MockAlbumItem(n, *t)).collect()
+    }
+
     fn album(items: Vec<(&'static str, SystemTime)>) -> MockAlbum {
         MockAlbum { items }
     }
@@ -504,13 +508,18 @@ mod tests {
             .collect()
     }
 
-    #[test]
-    fn test_build() {
-        let mut times = Times::new();
+    fn setup() -> (Times, PlaylistBuilder) {
+        let times = Times::new();
         let builder = PlaylistBuilder::new()
             .min_size(3)
             .max_size(5)
             .fresh_retention(times.fresh_retention);
+        (times, builder)
+    }
+
+    #[test]
+    fn test_build() {
+        let (mut times, builder) = setup();
 
         let pl = builder
             .build(&album(vec![
@@ -528,6 +537,11 @@ mod tests {
         assert_eq!(3, got.len());
         assert_eq!(vec!["new-a", "new-b"], &got[0..=1]);
         assert!(got[2] == "old-a" || got[2] == "old-b");
+    }
+
+    #[test]
+    fn test_build_many_fresh() {
+        let (mut times, builder) = setup();
 
         let pl = builder
             .build(&album(vec![times.fresh("new-a"), times.fresh("new-b")]))
@@ -549,11 +563,16 @@ mod tests {
         // * If there are fresh items more than min_size the result contain them up to max_size
         // * In case the first 5 items are selected even if there are much newer items in below
         assert_eq!(vec!["new-b", "new-c", "new-d", "new-e", "new-f"], names(pl));
+    }
+
+    #[test]
+    fn test_build_olds_randomness() {
+        let (mut times, builder) = setup();
 
         let album = album(vec![
             times.old("old-a"),
-            times.old("new-b"),
-            times.old("new-c"),
+            times.old("old-b"),
+            times.old("old-c"),
         ]);
         let pivot = builder.build(&album).unwrap();
         let mut all_same = true;
@@ -565,5 +584,85 @@ mod tests {
             }
         }
         assert!(!all_same);
+    }
+
+    #[test]
+    fn test_updated() {
+        let (mut times, builder) = setup();
+
+        let new_item = times.fresh("new-z");
+        let mut orig_list = vec![
+            times.old("old-a"),
+            times.fresh("new-a"),
+            times.fresh("new-b"),
+        ];
+        let old_list = clone_mockitems(&orig_list);
+
+        orig_list.push(new_item);
+        let album = album(orig_list);
+
+        let updated = builder.updated(&album, &old_list).unwrap();
+        // * New item z should be added
+        // * The original list's order should be preserved
+        assert_eq!(
+            Some(vec!["new-z", "old-a", "new-a", "new-b"]),
+            updated.map(names),
+        );
+    }
+
+    #[test]
+    fn test_updated_unchanged() {
+        let (mut times, builder) = setup();
+
+        let orig_list = vec![times.fresh("new-a"), times.old("old-a")];
+        let old_list = clone_mockitems(&orig_list);
+
+        let album = album(orig_list);
+
+        let updated = builder.updated(&album, &old_list).unwrap();
+        // * Should return None if there was no update
+        assert_eq!(None, updated);
+    }
+
+    #[test]
+    fn test_updated_max_size() {
+        let (mut times, builder) = setup();
+
+        let new_item = times.fresh("new-z");
+        let mut orig_list = vec![
+            times.fresh("new-a"),
+            times.fresh("new-b"),
+            times.fresh("new-c"),
+            times.fresh("new-d"),
+            times.fresh("new-e"),
+        ];
+        let old_list = clone_mockitems(&orig_list);
+
+        orig_list.insert(0, new_item);
+        let album = album(orig_list);
+
+        let updated = builder.updated(&album, &old_list).unwrap();
+        // * The list should not be exnteded beyond max_size even if there was a new item
+        assert_eq!(None, updated);
+    }
+
+    #[test]
+    fn test_updated_deleted() {
+        let (mut times, builder) = setup();
+
+        let mut orig_list = vec![
+            times.old("old-a"),
+            times.fresh("new-a"),
+            times.fresh("new-b"),
+        ];
+        let old_list = clone_mockitems(&orig_list);
+
+        orig_list.pop();
+        orig_list.remove(0);
+        let album = album(orig_list);
+
+        let updated = builder.updated(&album, &old_list).unwrap();
+        // * If some items disappeared from the album, they should be deleted from the updated list
+        assert_eq!(Some(vec!["new-a"]), updated.map(names),);
     }
 }
