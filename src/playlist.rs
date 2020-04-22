@@ -45,13 +45,14 @@ impl PlaylistBuilder {
         self
     }
 
-    pub fn updated<T: Album>(
+    pub fn updated<'a, T: Album>(
         &self,
         album: &T,
-        playlist: &[T::Item],
+        playlist: &'a [T::Item],
     ) -> Result<Option<Vec<T::Item>>, T::E> {
         let updated = self.do_build(
             Selectors::new(vec![Box::new(selector::PreviousItemSelector::new(
+                self.fresh_retention,
                 self.max_size,
                 playlist.iter(),
             ))]),
@@ -68,7 +69,7 @@ impl PlaylistBuilder {
         self.do_build(
             Selectors::new(vec![
                 Box::new(selector::FreshItemSelector::new(self.fresh_retention)),
-                Box::new(selector::OldItemSelector::new(self.max_size)),
+                Box::new(selector::OldItemSelector::new(self.min_size)),
             ]),
             album,
         )
@@ -112,12 +113,12 @@ impl Default for PlaylistBuilder {
     }
 }
 
-struct Selectors<T: AlbumItem> {
-    impls: Vec<Box<dyn Selector<T>>>,
+struct Selectors<'a, T: AlbumItem> {
+    impls: Vec<Box<dyn Selector<T> + 'a>>,
 }
 
-impl<T: AlbumItem> Selectors<T> {
-    fn new(impls: Vec<Box<dyn Selector<T>>>) -> Self {
+impl<'a, T: AlbumItem> Selectors<'a, T> {
+    fn new(impls: Vec<Box<dyn Selector<T> + 'a>>) -> Self {
         Self { impls }
     }
 
@@ -252,29 +253,39 @@ mod selector {
         }
     }
 
-    pub(super) struct PreviousItemSelector<I> {
+    pub(super) struct PreviousItemSelector<'a, I> {
         max_items: usize,
-        prev_items: HashMap<String, Option<I>>,
+        prev_items: Vec<Option<I>>,
+        order_map: HashMap<&'a str, usize>,
         newest_time: SystemTime,
-        new_items: Vec<I>,
+        fresh_selector: FreshItemSelector<I>,
     }
 
-    impl<'a, I: AlbumItem + 'a> PreviousItemSelector<I> {
-        pub(super) fn new<C: Iterator<Item = &'a I>>(max_items: usize, prev_items_iter: C) -> Self {
+    impl<'a, I: AlbumItem + 'a> PreviousItemSelector<'a, I> {
+        pub(super) fn new<C: Iterator<Item = &'a I>>(
+            fresh_retention: Duration,
+            max_items: usize,
+            prev_items_iter: C,
+        ) -> Self {
             let mut newest_time = SystemTime::UNIX_EPOCH;
-            let mut prev_items = HashMap::new();
-            for item in prev_items_iter {
-                prev_items.insert(item.id().to_owned(), None);
+            let mut order_map = HashMap::new();
+            for (i, item) in prev_items_iter.enumerate() {
                 if item.created_time() > newest_time {
                     newest_time = item.created_time();
                 }
+                order_map.insert(item.id(), i);
+            }
+            let mut prev_items = Vec::with_capacity(order_map.len());
+            for _ in 0..order_map.len() {
+                prev_items.push(None);
             }
 
             Self {
                 max_items,
                 prev_items,
+                order_map,
                 newest_time,
-                new_items: Vec::new(),
+                fresh_selector: FreshItemSelector::new(fresh_retention),
             }
         }
 
@@ -283,9 +294,9 @@ mod selector {
         }
     }
 
-    impl<I: AlbumItem + 'static> Selector<I> for PreviousItemSelector<I> {
+    impl<'a, I: AlbumItem + 'static> Selector<I> for PreviousItemSelector<'a, I> {
         fn take(&mut self, item: I) -> Option<I> {
-            if let Some(slot) = self.prev_items.get_mut(item.id()) {
+            if let Some(&slot) = self.order_map.get(item.id()) {
                 debug!(
                     "Re-selecting item id={}, time={}",
                     item.id(),
@@ -294,12 +305,12 @@ mod selector {
                         .unwrap()
                         .as_secs()
                 );
-                slot.replace(item);
+                self.prev_items[slot].replace(item);
                 return None;
             }
 
             if self.is_newest(&item)
-                && self.prev_items.len() + self.new_items.len() < self.max_items
+                && self.prev_items.len() + self.fresh_selector.locked_count() < self.max_items
             {
                 debug!(
                     "Adding new item id={}, time={}",
@@ -309,21 +320,23 @@ mod selector {
                         .unwrap()
                         .as_secs()
                 );
-                self.new_items.push(item);
-                return None;
+                return self.fresh_selector.take(item);
             }
             Some(item)
         }
 
         fn locked_count(&self) -> usize {
-            self.prev_items.values().filter(|b| b.is_some()).count() + self.new_items.len()
+            self.prev_items.iter().filter(|b| b.is_some()).count()
+                + self.fresh_selector.locked_count()
         }
 
-        fn drain(mut self: Box<Self>) -> Box<dyn Iterator<Item = I>> {
-            self.new_items
-                .sort_unstable_by_key(|item| Reverse(item.created_time()));
-            let prev_items: Vec<_> = self.prev_items.into_iter().filter_map(|(_, v)| v).collect();
-            Box::new(self.new_items.into_iter().chain(prev_items.into_iter()))
+        fn drain(self: Box<Self>) -> Box<dyn Iterator<Item = I>> {
+            let prev_items: Vec<_> = self.prev_items.into_iter().filter_map(|v| v).collect();
+            Box::new(
+                Box::new(self.fresh_selector)
+                    .drain()
+                    .chain(prev_items.into_iter()),
+            )
         }
     }
 
