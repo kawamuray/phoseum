@@ -191,7 +191,9 @@ fn run(matches: ArgMatches<'_>) -> Result<()> {
     );
 
     let mut app = Phoseum::new(slideshow);
-    app.add_playlist_commander(create_http_commander(&matches)?);
+    let http_commander = create_http_commander(&matches)?;
+    app.add_player_commander(http_commander.clone());
+    app.add_playlist_commander(http_commander);
     match matches.value_of("control.player").expect("control.player") {
         "gpio" => {
             app.add_player_commander(create_gpio_commander(&matches)?);
