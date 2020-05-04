@@ -100,8 +100,8 @@ impl<P: Player, A: Album> Slideshow<P, A> {
         }
 
         let mut player = self.player.lock().unwrap();
-        if player.pausing() {
-            info!("Player is pausing, not replacing playlist");
+        if player.locked() {
+            info!("Player is locked, not replacing playlist");
             return Ok(());
         }
 
@@ -125,8 +125,8 @@ impl<P: Player, A: Album> Slideshow<P, A> {
 
     pub fn refresh_playlist(&mut self) -> Result<()> {
         info!("Start refreshing playlist");
-        if self.player.lock().unwrap().pausing() {
-            info!("Player is pausing, not refreshing playlist");
+        if self.player.lock().unwrap().locked() {
+            info!("Player is locked, not refreshing playlist");
             return Ok(());
         }
         let playlist = self.pl_builder.build(&self.album)?;
@@ -139,8 +139,8 @@ impl<P: Player, A: Album> Slideshow<P, A> {
             "Start updating playlist, currently {} items",
             self.playlist.as_ref().map(|p| p.len()).unwrap_or(0)
         );
-        if self.player.lock().unwrap().pausing() {
-            info!("Player is pausing, not updating playlist");
+        if self.player.lock().unwrap().locked() {
+            info!("Player is locked, not updating playlist");
             return Ok(());
         }
         if let Some(new_pl) = self

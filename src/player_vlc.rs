@@ -370,8 +370,8 @@ impl<C: HttpClient> Player for VlcPlayer<C> {
         Ok(())
     }
 
-    fn pausing(&self) -> bool {
-        self.pausing
+    fn locked(&self) -> bool {
+        self.pausing || self.sleeping
     }
 
     fn is_ok(&self) -> bool {

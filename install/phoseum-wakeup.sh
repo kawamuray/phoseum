@@ -5,6 +5,6 @@ basedir="$(cd $(dirname $0); pwd)"
 
 . "$basedir/config"
 
-sudo systemctl start phoseum
+$basedir/player-cmd.sh wakeup
 sleep 60
 sudo -u pi /usr/bin/xset -display "$DISPLAY" dpms force on

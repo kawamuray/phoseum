@@ -59,8 +59,8 @@ pub trait Player {
     fn unmute(&mut self) -> Result<()>;
     /// Update by replacing the current playlist with newly given playlist
     fn update_playlist(&mut self, playlist: Vec<PathBuf>) -> Result<()>;
-    /// Return whether the player is pausing
-    fn pausing(&self) -> bool;
+    /// Return whether the player is pausing or sleeping
+    fn locked(&self) -> bool;
     /// Healthcheck. If player is considered as not functioning at the moment, return false.
     fn is_ok(&self) -> bool;
 }
