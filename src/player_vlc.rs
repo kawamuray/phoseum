@@ -57,28 +57,84 @@ impl Default for VlcConfig {
     }
 }
 
-pub struct VlcPlayer {
+pub trait HttpClient {
+    fn send_get(
+        &self,
+        port: u32,
+        path: &str,
+        params: &[(&str, &str)],
+    ) -> std::result::Result<String, VlcError>;
+}
+
+pub struct ReqwestClient(reqwest::Client);
+
+impl HttpClient for ReqwestClient {
+    fn send_get(
+        &self,
+        port: u32,
+        path: &str,
+        params: &[(&str, &str)],
+    ) -> std::result::Result<String, VlcError> {
+        let url = Url::parse_with_params(
+            &format!("http://{}:{}/{}", VLC_HTTP_HOST, port, path),
+            params,
+        )
+        .expect("parse vlc url");
+
+        debug!("Sending GET to {}", url);
+
+        let mut resp = self
+            .0
+            .get(url.as_ref())
+            .basic_auth("", Some(VLC_HTTP_PASSWORD))
+            .send()?;
+        if !resp.status().is_success() {
+            return Err(VlcError::BadResponse(format_err!(
+                "Bad HTTP status {} : {}",
+                resp.status(),
+                resp.text().unwrap_or_else(|_| "N/A".to_string())
+            )));
+        }
+
+        Ok(resp.text()?)
+    }
+}
+
+pub struct VlcPlayer<C: HttpClient = ReqwestClient> {
     vlc_config: VlcConfig,
 
     config: Option<SlideshowConfig>,
     process: Option<Child>,
-    client: reqwest::Client,
+    client: C,
 
     pausing: bool,
+    sleeping: bool,
     muting: bool,
 }
 
 impl VlcPlayer {
-    pub fn new(config: VlcConfig) -> VlcPlayer {
-        VlcPlayer {
+    pub fn new(config: VlcConfig) -> Self {
+        Self::new_with_client(
+            config,
+            ReqwestClient(
+                reqwest::Client::builder()
+                    .timeout(Some(Duration::from_secs(VLC_REQUEST_TIMEOUT)))
+                    .build()
+                    .expect("reqwest client"),
+            ),
+        )
+    }
+}
+
+impl<C: HttpClient> VlcPlayer<C> {
+    fn new_with_client(config: VlcConfig, client: C) -> Self {
+        Self {
             vlc_config: config,
             config: None,
             process: None,
-            client: reqwest::Client::builder()
-                .timeout(Some(Duration::from_secs(VLC_REQUEST_TIMEOUT)))
-                .build()
-                .expect("reqwest client"),
+            client,
             pausing: false,
+            sleeping: false,
             muting: false,
         }
     }
@@ -93,31 +149,16 @@ impl VlcPlayer {
         Ok((VLC_VOLUME_MAX as f32 * self.config()?.audio_volume).round() as u32)
     }
 
-    fn send_get<U: AsRef<str>>(&self, url: U) -> std::result::Result<String, VlcError> {
-        debug!("Sending GET to {}", url.as_ref());
-
-        let mut resp = self
-            .client
-            .get(url.as_ref())
-            .basic_auth("", Some(VLC_HTTP_PASSWORD))
-            .send()?;
-        if !resp.status().is_success() {
-            return Err(VlcError::BadResponse(format_err!(
-                "Bad HTTP status {} : {}",
-                resp.status(),
-                resp.text().unwrap_or_else(|_| "N/A".to_string())
-            )));
-        }
-
-        Ok(resp.text()?)
-    }
-
     fn http_port(&self) -> u32 {
         self.vlc_config.http_port.unwrap_or(VLC_DEFAULT_HTTP_PORT)
     }
 
-    fn build_url(&self, path: &str) -> String {
-        format!("http://{}:{}/{}", VLC_HTTP_HOST, self.http_port(), path)
+    fn send_get(
+        &self,
+        path: &str,
+        params: &[(&str, &str)],
+    ) -> std::result::Result<String, VlcError> {
+        self.client.send_get(self.http_port(), path, params)
     }
 
     fn send_status_cmd(
@@ -131,13 +172,11 @@ impl VlcPlayer {
             params.extend(args);
         }
 
-        let url = Url::parse_with_params(&self.build_url("requests/status.xml"), params)
-            .expect("parse vlc url");
-        self.send_get(&url)
+        self.send_get("requests/status.xml", &params)
     }
 
     fn get_playlist(&self) -> std::result::Result<Element, VlcError> {
-        let xml = self.send_get(&self.build_url("requests/playlist.xml"))?;
+        let xml = self.send_get("requests/playlist.xml", &[])?;
         debug!("Playlist XML from VLC: {}", xml);
         let element = Element::from_reader(xml.into_bytes().as_slice())?;
         Ok(element)
@@ -187,7 +226,7 @@ impl VlcPlayer {
         )))
     }
 
-    fn may_restore_pause(&self) -> std::result::Result<(), VlcError> {
+    fn maybe_restore_pause(&self) -> std::result::Result<(), VlcError> {
         // Moving resets the pausing state
         if self.pausing {
             // Pausing before play starts causes blackscreen
@@ -196,9 +235,25 @@ impl VlcPlayer {
         }
         Ok(())
     }
+
+    fn maybe_pause(&self) -> std::result::Result<(), VlcError> {
+        if !self.pausing && !self.sleeping {
+            self.send_status_cmd("pl_pause", &[])?;
+        }
+        Ok(())
+    }
+
+    fn maybe_resume(&mut self, resume: bool) -> std::result::Result<(), VlcError> {
+        if (self.pausing && resume) || (self.sleeping && !self.pausing) {
+            self.send_status_cmd("pl_play", &[])?;
+            self.pausing = false;
+            self.sleeping = false;
+        }
+        Ok(())
+    }
 }
 
-impl Player for VlcPlayer {
+impl<C: HttpClient> Player for VlcPlayer<C> {
     fn start(&mut self, config: SlideshowConfig) -> Result<()> {
         let vlc_bin = self
             .vlc_config
@@ -238,29 +293,35 @@ impl Player for VlcPlayer {
 
     fn play_next(&mut self) -> Result<()> {
         self.send_status_cmd("pl_next", &[])?;
-        self.may_restore_pause()?;
+        self.maybe_restore_pause()?;
         Ok(())
     }
 
     fn play_back(&mut self) -> Result<()> {
         self.send_status_cmd("pl_previous", &[])?;
-        self.may_restore_pause()?;
+        self.maybe_restore_pause()?;
+        Ok(())
+    }
+
+    fn sleep(&mut self) -> Result<()> {
+        self.maybe_pause()?;
+        self.sleeping = true;
+        Ok(())
+    }
+
+    fn wakeup(&mut self) -> Result<()> {
+        self.maybe_resume(false)?;
         Ok(())
     }
 
     fn pause(&mut self) -> Result<()> {
-        if !self.pausing {
-            self.send_status_cmd("pl_pause", &[])?;
-        }
+        self.maybe_pause()?;
         self.pausing = true;
         Ok(())
     }
 
     fn resume(&mut self) -> Result<()> {
-        if self.pausing {
-            self.send_status_cmd("pl_play", &[])?;
-        }
-        self.pausing = false;
+        self.maybe_resume(true)?;
         Ok(())
     }
 
@@ -324,7 +385,7 @@ impl Player for VlcPlayer {
     }
 }
 
-impl Drop for VlcPlayer {
+impl<C: HttpClient> Drop for VlcPlayer<C> {
     fn drop(&mut self) {
         if let Some(mut proc) = self.process.take() {
             // Rust's Command doesn't support other than SIGKILL in portable interface
@@ -342,41 +403,29 @@ impl Drop for VlcPlayer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::borrow::Cow;
+    use std::cell::{Cell, RefCell};
+    use std::collections::HashMap;
     use std::fs;
-    use std::io::{Read, Write};
-    use std::net::TcpListener;
+    use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
-    use std::thread;
-    use std::time::Duration;
     use tempfile;
 
-    fn http_server<S: Into<Cow<'static, str>>>(responses: Vec<S>) {
-        let listener = TcpListener::bind(format!("localhost:{}", VLC_DEFAULT_HTTP_PORT)).unwrap();
-        let responses: Vec<_> = responses.into_iter().map(Into::into).collect();
-        thread::spawn(move || {
-            for resp in responses {
-                let mut conn_in = listener.incoming().next().unwrap().unwrap();
-                conn_in
-                    .set_read_timeout(Some(Duration::from_secs(1)))
-                    .unwrap();
-                let mut buf = [0; 4096];
-                loop {
-                    if let Ok(size) = conn_in.read(&mut buf) {
-                        if size > 0 {
-                            continue;
-                        }
-                    }
-                    break;
-                }
-                write!(&mut conn_in, "HTTP/1.1 200 OK\r\n\r\n{}", resp).unwrap();
-            }
-        });
+    impl<F: Fn(&str, &HashMap<&str, &str>) -> std::result::Result<String, VlcError>> HttpClient for F {
+        fn send_get(
+            &self,
+            _port: u32,
+            path: &str,
+            params: &[(&str, &str)],
+        ) -> std::result::Result<String, VlcError> {
+            self(path, &params.into_iter().map(|v| *v).collect())
+        }
     }
 
-    fn dummy_bin<S: Into<Cow<'static, str>>>(responses: Vec<S>) -> tempfile::NamedTempFile {
-        http_server(responses);
-
+    fn dummy_bin_player<
+        C: Fn(&str, &HashMap<&str, &str>) -> std::result::Result<String, VlcError>,
+    >(
+        client: C,
+    ) -> (tempfile::NamedTempFile, VlcPlayer<C>) {
         let mut dummy_bin = tempfile::NamedTempFile::new().unwrap();
         let file = dummy_bin.as_file_mut();
         writeln!(file, "#!/bin/sh").unwrap();
@@ -385,23 +434,106 @@ mod tests {
         let mut perm = file.metadata().expect("metadata").permissions();
         perm.set_mode(0o775);
         fs::set_permissions(&dummy_bin, perm).unwrap();
-        dummy_bin
+
+        let player = VlcPlayer::new_with_client(
+            VlcConfig {
+                vlc_bin: Some(dummy_bin.path().to_str().unwrap().to_string()),
+                ..VlcConfig::default()
+            },
+            client,
+        );
+        (dummy_bin, player)
     }
 
     #[test]
     fn test_is_ok() {
-        let dummy_bin = dummy_bin(vec!["", "", ""]); // 2 for start(), 1 for first is_ok()
-
-        let mut player = VlcPlayer::new(VlcConfig {
-            vlc_bin: Some(dummy_bin.path().to_str().unwrap().to_string()),
-            ..VlcConfig::default()
+        let shutdown = Cell::new(false);
+        let (_dummy_bin, mut player) = dummy_bin_player(|_, _| {
+            if shutdown.get() {
+                Err(VlcError::BadResponse(format_err!("")))
+            } else {
+                Ok("".to_string())
+            }
         });
+
         player.start(SlideshowConfig::default()).unwrap();
 
         // Player health's good while it's running
         assert!(player.is_ok());
 
         // Now process exits and health should not be okay
+        shutdown.set(true);
         assert!(!player.is_ok());
+    }
+
+    #[test]
+    fn test_pause() {
+        let req = RefCell::new(None);
+        let (_dummy_bin, mut player) = dummy_bin_player(|_, p| {
+            req.borrow_mut()
+                .replace(p.get("command").unwrap_or(&"").to_string());
+            Ok("".to_string())
+        });
+
+        player.start(SlideshowConfig::default()).unwrap();
+
+        player.pause().unwrap();
+        assert_eq!(Some("pl_pause".to_string()), req.borrow_mut().take());
+        // Calling pause twice should be no-op
+        player.pause().unwrap();
+        assert_eq!(None, req.borrow_mut().take());
+
+        player.resume().unwrap();
+        assert_eq!(Some("pl_play".to_string()), req.borrow_mut().take());
+        player.resume().unwrap();
+        assert_eq!(None, req.borrow_mut().take());
+
+        // Do not send pause again if its alredy sleeping
+        player.sleep().unwrap();
+        req.borrow_mut().take();
+        player.pause().unwrap();
+        assert_eq!(None, req.borrow_mut().take());
+
+        // Resume can ignore sleep
+        player.resume().unwrap();
+        assert_eq!(Some("pl_play".to_string()), req.borrow_mut().take());
+
+        // Resume should reset sleep flag
+        player.sleep().unwrap();
+        assert_eq!(Some("pl_pause".to_string()), req.borrow_mut().take());
+    }
+
+    #[test]
+    fn test_sleep() {
+        let req = RefCell::new(None);
+        let (_dummy_bin, mut player) = dummy_bin_player(|_, p| {
+            req.borrow_mut()
+                .replace(p.get("command").unwrap_or(&"").to_string());
+            Ok("".to_string())
+        });
+
+        player.start(SlideshowConfig::default()).unwrap();
+
+        player.sleep().unwrap();
+        assert_eq!(Some("pl_pause".to_string()), req.borrow_mut().take());
+        // Calling sleep twice should be no-op
+        player.sleep().unwrap();
+        assert_eq!(None, req.borrow_mut().take());
+
+        player.wakeup().unwrap();
+        assert_eq!(Some("pl_play".to_string()), req.borrow_mut().take());
+        // Calling wakeup twice should be no-op
+        player.wakeup().unwrap();
+        assert_eq!(None, req.borrow_mut().take());
+
+        // Do not send pause again if its alredy sleeping
+        player.pause().unwrap();
+        req.borrow_mut().take();
+        player.sleep().unwrap();
+        assert_eq!(None, req.borrow_mut().take());
+
+        // Wakeup should not resume if it's pausing
+        player.wakeup().unwrap();
+        assert_eq!(None, req.borrow_mut().take());
     }
 }

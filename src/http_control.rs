@@ -63,16 +63,16 @@ impl HttpCommander {
                         })
                     },
                     // Player commands
-                    (POST) (/player/pause) => {
+                    (POST) (/player/sleep) => {
                         Self::with_sender(&player_sender, |sender| {
-                            sender.send(PlayerCmd::Pause).expect("Sender::send player");
-                            rouille::Response::text("Player paused")
+                            sender.send(PlayerCmd::Sleep).expect("Sender::send player");
+                            rouille::Response::text("Player slept")
                         })
                     },
-                    (POST) (/player/resume) => {
+                    (POST) (/player/wakeup) => {
                         Self::with_sender(&player_sender, |sender| {
-                            sender.send(PlayerCmd::Resume).expect("Sender::send player");
-                            rouille::Response::text("Player resumed")
+                            sender.send(PlayerCmd::Wakeup).expect("Sender::send player");
+                            rouille::Response::text("Player woke up")
                         })
                     },
                     _ => rouille::Response::empty_404()

@@ -24,6 +24,10 @@ pub enum PlayerCmd {
     Pause,
     /// Resume sliding photo or playing video
     Resume,
+    /// Pause sliding photo or playing video
+    Sleep,
+    /// Resume sliding photo or playing video
+    Wakeup,
     /// Mute video volume
     Mute,
     /// Unmute video volume
@@ -37,6 +41,8 @@ impl PlayerCmd {
             "play_back" => Some(Self::PlayBack),
             "pause" => Some(Self::Pause),
             "resume" => Some(Self::Resume),
+            "sleep" => Some(Self::Sleep),
+            "wakeup" => Some(Self::Wakeup),
             "mute" => Some(Self::Mute),
             "unmute" => Some(Self::Unmute),
             _ => None,
@@ -60,6 +66,8 @@ pub fn handle_player_cmd<P: Player>(player: &mut P, cmd: PlayerCmd) -> Result<()
         PlayerCmd::PlayBack => player.play_back(),
         PlayerCmd::Pause => player.pause(),
         PlayerCmd::Resume => player.resume(),
+        PlayerCmd::Sleep => player.sleep(),
+        PlayerCmd::Wakeup => player.wakeup(),
         PlayerCmd::Mute => player.mute(),
         PlayerCmd::Unmute => player.unmute(),
     }

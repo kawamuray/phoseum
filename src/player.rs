@@ -33,12 +33,25 @@ pub trait Player {
     fn play_next(&mut self) -> Result<()>;
     /// Move to the previous item in the playlist
     fn play_back(&mut self) -> Result<()>;
+    /// Sleep the player.
+    ///
+    /// Slideshow should stop immediately until either `wakeup()` or `resume()` is called.
+    fn sleep(&mut self) -> Result<()>;
+    /// Wakeup from sleep.
+    ///
+    /// When this method called player should be come back from sleeping status,
+    /// however if it is currently pausing as well, it should not resume playing
+    /// until `#resume()` is called.
+    fn wakeup(&mut self) -> Result<()>;
     /// Pause slideshow
     ///
     /// If photo is currently displayed, it should stop sliding to the next one.
     /// If video is currently playing, it should pause its play.
     fn pause(&mut self) -> Result<()>;
     /// Resume slideshow
+    ///
+    /// When this method called player should be resume playing slideshow,
+    /// even if it is currently sleeping.
     fn resume(&mut self) -> Result<()>;
     /// Mute volume
     fn mute(&mut self) -> Result<()>;
