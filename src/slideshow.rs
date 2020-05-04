@@ -91,11 +91,17 @@ impl<P: Player, A: Album> Slideshow<P, A> {
         Ok(paths)
     }
 
-    fn replace_playlist(&mut self, player: &mut P, playlist: Vec<A::Item>) -> Result<()> {
+    fn replace_playlist(&mut self, playlist: Vec<A::Item>) -> Result<()> {
         let paths = self.prepare_items(&playlist)?;
 
         if paths.is_empty() {
             info!("Not updating playlist because it has no items");
+            return Ok(());
+        }
+
+        let mut player = self.player.lock().unwrap();
+        if player.pausing() {
+            info!("Player is pausing, not replacing playlist");
             return Ok(());
         }
 
@@ -119,14 +125,12 @@ impl<P: Player, A: Album> Slideshow<P, A> {
 
     pub fn refresh_playlist(&mut self) -> Result<()> {
         info!("Start refreshing playlist");
-        let player = self.player();
-        let mut player_lock = player.lock().expect("lock player");
-        if player_lock.pausing() {
-            info!("Player is pausing, not replacing playlist");
+        if self.player.lock().unwrap().pausing() {
+            info!("Player is pausing, not refreshing playlist");
             return Ok(());
         }
         let playlist = self.pl_builder.build(&self.album)?;
-        self.replace_playlist(&mut player_lock, playlist)?;
+        self.replace_playlist(playlist)?;
         Ok(())
     }
 
@@ -135,10 +139,8 @@ impl<P: Player, A: Album> Slideshow<P, A> {
             "Start updating playlist, currently {} items",
             self.playlist.as_ref().map(|p| p.len()).unwrap_or(0)
         );
-        let player = self.player();
-        let mut player_lock = player.lock().expect("lock player");
-        if player_lock.pausing() {
-            info!("Player is pausing, not replacing playlist");
+        if self.player.lock().unwrap().pausing() {
+            info!("Player is pausing, not updating playlist");
             return Ok(());
         }
         if let Some(new_pl) = self
@@ -146,7 +148,7 @@ impl<P: Player, A: Album> Slideshow<P, A> {
             .updated(&self.album, self.playlist.as_ref().expect("playlist"))?
         {
             info!("Playlist updated, new list contains {} items", new_pl.len());
-            self.replace_playlist(&mut player_lock, new_pl)?;
+            self.replace_playlist(new_pl)?;
         } else {
             info!("No new updates for playlist");
         }
