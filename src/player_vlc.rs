@@ -228,7 +228,7 @@ impl<C: HttpClient> VlcPlayer<C> {
 
     fn maybe_restore_pause(&self) -> std::result::Result<(), VlcError> {
         // Moving resets the pausing state
-        if self.pausing {
+        if self.locked() {
             // Pausing before play starts causes blackscreen
             std::thread::sleep(Duration::from_secs(1));
             self.send_status_cmd("pl_pause", &[])?;
