@@ -189,6 +189,7 @@ impl GPhotosAlbumItem {
             "image/apng" => Some((MediaType::PHOTO, "apng")),
             "image/gif" => Some((MediaType::PHOTO, "gif")),
             "image/svg+xml" => Some((MediaType::PHOTO, "svg")),
+            "image/heif" => Some((MediaType::PHOTO, "heif")),
             "video/webm" => Some((MediaType::VIDEO, "webm")),
             "video/ogg" => Some((MediaType::VIDEO, "ogg")),
             "video/mp4" => Some((MediaType::VIDEO, "mp4")),
