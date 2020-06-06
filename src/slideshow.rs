@@ -143,14 +143,16 @@ impl<P: Player, A: Album> Slideshow<P, A> {
             info!("Player is locked, not updating playlist");
             return Ok(());
         }
-        if let Some(new_pl) = self
-            .pl_builder
-            .updated(&self.album, self.playlist.as_ref().expect("playlist"))?
-        {
-            info!("Playlist updated, new list contains {} items", new_pl.len());
-            self.replace_playlist(new_pl)?;
+        if let Some(cur_pl) = &self.playlist {
+            if let Some(new_pl) = self.pl_builder.updated(&self.album, cur_pl)? {
+                info!("Playlist updated, new list contains {} items", new_pl.len());
+                self.replace_playlist(new_pl)?;
+            } else {
+                info!("No new updates for playlist");
+            }
         } else {
-            info!("No new updates for playlist");
+            info!("Current playlist has no items, delegate from update to refresh");
+            return self.refresh_playlist();
         }
         Ok(())
     }
