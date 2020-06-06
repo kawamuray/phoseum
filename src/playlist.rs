@@ -80,6 +80,7 @@ impl PlaylistBuilder {
         mut selectors: Selectors<T::Item>,
         album: &T,
     ) -> Result<Vec<T::Item>, T::E> {
+        let mut first_error = None;
         for item in album.items() {
             if selectors.locked_count() == self.max_size {
                 break;
@@ -92,6 +93,9 @@ impl PlaylistBuilder {
                         return Err(e);
                     } else {
                         warn!("Skipping item by error: {}", e);
+                        if first_error.is_none() {
+                            first_error.replace(e);
+                        }
                         continue;
                     }
                 }
@@ -99,7 +103,16 @@ impl PlaylistBuilder {
 
             selectors.consume(item);
         }
-        Ok(selectors.select(self.min_size, self.max_size))
+
+        let pl = selectors.select(self.min_size, self.max_size);
+        // If the result is empty and there was an error from album API, we should not
+        // likely ignore the error we seen.
+        if pl.is_empty() {
+            if let Some(e) = first_error {
+                return Err(e);
+            }
+        }
+        Ok(pl)
     }
 }
 
