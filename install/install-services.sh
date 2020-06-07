@@ -9,6 +9,12 @@ playlist_cmd="$basedir/playlist-cmd.sh"
 sleep_bin="$basedir/phoseum-sleep.sh"
 wakeup_bin="$basedir/phoseum-wakeup.sh"
 
+function on_calendars() {
+    echo "$1" | while read s; do
+        echo "OnCalendar=$s"
+    done
+}
+
 sudo tee /etc/systemd/system/phoseum.service <<EOF >/dev/null
 [Unit]
 Description=Photo and video slideshow
@@ -44,7 +50,7 @@ Description=Refresh phoseum playlist
 BindsTo=phoseum.service
 
 [Timer]
-OnCalendar=$REFRESH_CAL
+$(on_calendars "$REFRESH_CAL")
 
 [Install]
 WantedBy=timers.target
@@ -67,7 +73,7 @@ Description=Update phoseum playlist
 BindsTo=phoseum.service
 
 [Timer]
-OnCalendar=$UPDATE_CAL
+$(on_calendars "$UPDATE_CAL")
 
 [Install]
 WantedBy=timers.target
@@ -87,7 +93,7 @@ sudo tee /etc/systemd/system/phoseum-sleep.timer <<EOF >/dev/null
 Description=Enter sleep mode
 
 [Timer]
-OnCalendar=$SLEEP_CAL
+$(on_calendars "$SLEEP_CAL")
 
 [Install]
 WantedBy=timers.target
@@ -107,7 +113,7 @@ sudo tee /etc/systemd/system/phoseum-wakeup.timer <<EOF >/dev/null
 Description=Back from sleep mode
 
 [Timer]
-OnCalendar=$WAKEUP_CAL
+$(on_calendars "$WAKEUP_CAL")
 
 [Install]
 WantedBy=timers.target
